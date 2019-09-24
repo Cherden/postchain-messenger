@@ -1,0 +1,95 @@
+class User {
+	name : text;
+	pubkey : byte_array;
+}
+
+class FriendshipRequest {
+	from : User;
+	to : User;
+	time : timestamp;
+	g : text;
+	p : text;
+	intilizers_A : text;
+}
+
+class Friendship {
+	user1 : User;
+	user2 : User;
+	g : text;
+	p : text;
+	user1_A : text;
+	user2_A : text;
+}
+
+class Message {
+	from : User;
+	to : User;
+	time : integer;
+	content : text;
+}
+
+operation create_user(name, pubkey) {
+	create User(name, pubkey);
+}
+
+operation send_friend_request(pubkey, name, g : text, p: text, A: text) {
+	var me  = User @ {pubkey};
+	var new_friend = User @ {name};
+	var friend_bucket : byte_array = byte_array.from_list([0]);
+	
+	create FriendshipRequest(from = me, to = new_friend, time = op_context.last_block_time, g = g, p = p, intilizers_A = A);
+}
+
+
+operation accept_friend_request(pubkey, new_friends_name : name, A : text) {
+	var me = User @ {pubkey};
+	var new_friend = User @ {new_friends_name};
+	var friend_request = FriendshipRequest @? {.from == new_friend and .to == me};
+	
+	if (friend_request == null) {
+		print("accept_friend_request: Friend request does not exist");
+		return;
+	}
+	
+	create Friendship (.user1 = new_friend, .user2 = me, .g = friend_request.g, .p = friend_request.p, .user1_A = friend_request.intilizers_A, .user2_A = A);
+	delete friend_request;
+}
+
+operation send_message(pubkey, friend_name : text, encrypted_message : text) {
+	var me = User @ {pubkey};
+	var friend = User @ {friend_name};
+	
+	create Message(from = me, to = friend, time = op_context.last_block_time, content = encrypted_message);
+}
+
+
+query get_friend_requests(pubkey, last_timestamp: timestamp) {
+	var me = User @ {pubkey};
+	
+	return FriendshipRequest @* {.to == me and .time / 1000 > last_timestamp} (name = .from.name, sort time = .time / 1000, g = .g, p = .p);
+}
+
+query get_friends_A(pubkey, friend_name : name) : text {
+	var me = User @ {pubkey};
+	var friend = User @ {friend_name};
+	
+	var friendship = Friendship @? {.user1 == me and .user2 == friend};
+	if (friendship == null) {
+		friendship = Friendship @? {.user2 == me and .user1 == friend};
+		if (friendship == null) {
+			return '';
+		}
+		
+		return friendship.user1_A;
+	} else {
+		return friendship.user2_A;
+	}
+}
+
+query get_messages(pubkey, last_timestamp: integer) {
+	var me = User @ {pubkey};
+	
+	return Message @* {.to == me and .time / 1000 > last_timestamp} (from = .from.name, sort time = .time / 1000, content = .content);
+}
+
+
